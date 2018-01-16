@@ -74,26 +74,95 @@ export class AST {
     });
   } 
 
+  // patch : AST AST -> AST
+  // Given two ASTs oldAST and newAST, returns a new one with updated nodes
+  // marked as dirty for re-rendering purposes.
+  // patch(oldAST, newAST, changes) {
+  //   console.log(changes);
+  //   var patches = jsonpatch.compare(oldAST.rootNodes, newAST.rootNodes);
+  //   patches = patches.filter(p => ['aria-level','aria-setsize','aria-posinset','line','ch'].includes(p.path.split('/').pop()));
+  //   console.log(patches);
+  //   return newAST;
+  // }
+
   // patch : AST ChangeObj -> AST
   // given a new AST, return a new one patched from the current one
   // taking care to preserve all rendered DOM elements, though!
-  patch(newAST, {from, to, text}) {
-    let fromNode      = this.getRootNodesTouching(from, from)[0]; // is there a containing rootNode?
-    let fromPos       = fromNode? fromNode.from : from;           // if so, use that node's .from
-    var insertedToPos = {line: from.line+text.length-1, ch: text[text.length-1].length+((text.length==1)? from.ch : 0)};
-    // get an array of removed roots and inserted roots
-    let removedRoots  = this.getRootNodesTouching(from, to);
-    let insertedRoots = newAST.getRootNodesTouching(fromPos, insertedToPos).map(r => {r.dirty=true; return r;});
-    // compute splice point, do the splice, and patch from/to posns, aria attributes, etc
-    for(var i = 0; i<this.rootNodes.length; i++){ if(comparePos(fromPos, this.rootNodes[i].from)<=0) break;  }
-    //console.log('starting at index'+(i)+', remove '+removedRoots.length+' roots and insert', insertedRoots);
-    this.rootNodes.splice(i, removedRoots.length, ...insertedRoots);
+  patch(parser, code, changes) {
+
+    let newAST = parser(code), dirtyNodes = new Set();
+
+    // The difficult thing with patching is that while we can find nodes in the
+    // AST via their .path (zero-index), we can't edit nodes at a specific
+    // path location. The workaround for this is to compare the old AST (this)
+    // to the newAST, and then query on the id changes to find the json path 
+    // that needs to be patched for a given node. We can then append this path
+    // to our patches:
+    let basePatchIds = jsonpatch.compare(this.rootNodes, newAST.rootNodes)
+                                .filter(p => ['id'].includes(p.path.split('/').pop()));
+    console.log("basePatchIds", basePatchIds);
+
+    changes.forEach(({from, to, text, removed}) => {
+      console.log('--------------PROCESSING CHANGE------------', {from, to, text, removed});
+
+      let isInsertion = (comparePos(from, to) == 0);
+      let isDeletion  = (text.join("") === "");
+
+      // Check if there's a node from the old AST that contains the change:
+      let containingNode = this.getNodeContaining(from);
+      if (containingNode && !(isInsertion || isDeletion)) {
+        containingNode = this.getNodeParent(containingNode);
+      }
+      
+      if (containingNode) {
+
+        let newParentNode = newAST.getNodeByPath(containingNode.path);
+
+        let patches = jsonpatch.compare(containingNode, newParentNode);
+        patches     = patches.filter(p => !['el','path'].includes(p.path.split('/').pop()));
+
+        let baseIdPatch  = basePatchIds.find(p => p.value == newParentNode.id);
+        let baseJSONPath = baseIdPatch.path.slice(0, -3);
+
+        for (var i = 0; i < patches.length; i++) {
+          patches[i].path = baseJSONPath + patches[i].path;
+        }
+
+        console.log("based patches", patches);
+
+        jsonpatch.applyPatch(this.rootNodes, patches, false);
+        console.log(this.rootNodes);
+        // castToASTNode(this.getNodeByPath(containingNode.path));
+        dirtyNodes.add(this.getNodeByPath(containingNode.path));  
+      } else {
+        // Otherwise, just insert into root:
+        let fromNode      = this.getNodeContaining(from);
+        let fromPos       = fromNode? fromNode.from : from;
+        var insertedToPos = {line: from.line+text.length-1, ch: text[text.length-1].length+((text.length==1)? from.ch : 0)};
+        
+        // get an array of removed roots and inserted roots
+        let removedRoots  = this.getRootNodesTouching(from, to);
+        let insertedRoots = newAST.getRootNodesTouching(fromPos, insertedToPos);
+        insertedRoots.forEach((r) => { 
+          dirtyNodes.add(r);
+        });
+
+        // compute splice point, do the splice, and patch from/to posns, aria attributes, etc
+        for(var i = 0; i<this.rootNodes.length; i++){ if(comparePos(fromPos, this.rootNodes[i].from)<=0) break;  }
+        //console.log('starting at index'+(i)+', remove '+removedRoots.length+' roots and insert', insertedRoots);
+        this.rootNodes.splice(i, removedRoots.length, ...insertedRoots);
+      }
+    });
+
+    // Update aria attributes across the tree:
     var patches = jsonpatch.compare(this.rootNodes, newAST.rootNodes);
-    // only update aria attributes and position fields
     patches = patches.filter(p => ['aria-level','aria-setsize','aria-posinset','line','ch'].includes(p.path.split('/').pop()));
     jsonpatch.applyPatch(this.rootNodes, patches, false); // false = don't validate patches
-    //this.rootNodes.forEach(castToASTNode);
-    return new AST(this.rootNodes);
+
+    // Attach dirty node list onto AST for re-rendering:
+    let patchedAST = new AST(this.rootNodes);
+    patchedAST.dirtyNodes = [...dirtyNodes];
+    return patchedAST;
   }
 
   getNodeById(id) {
@@ -125,6 +194,12 @@ export class AST {
     return rootNodes.filter(node =>
       posWithinNode(start, node) || posWithinNode(end, node) ||
       ( (comparePos(start, node.from) < 0) && (comparePos(end, node.to) > 0) ));
+  }
+  // given a node, returns the root node containing it
+  getRootNodeContainingNode(node) {
+    let path = node.path.split(",");
+    let rootIndex = parseInt(path[0]);
+    return this.rootNodes[rootIndex];
   }
   // return the parent or false
   getNodeParent(node) {

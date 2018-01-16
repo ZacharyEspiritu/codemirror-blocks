@@ -329,19 +329,18 @@ export default class CodeMirrorBlocks {
   // re-parse the document, then (ideally) patch and re-render the resulting AST
   render(changes) {
     let start = Date.now();
-    try{
+    try {
       this.cm.operation(() => {
-        // for each change, patch the AST and render dirty rootNodes
-        changes.forEach(change => {
-          this.ast = this.ast.patch(this.parser.parse(this.cm.getValue()), change);
-          this.ast.rootNodes.filter(r => r.dirty).forEach(r => { this.renderer.render(r); delete r.dirty; });
-        });
+        this.ast = this.ast.patch(this.parser.parse, this.cm.getValue(), changes);
+        console.log(this.ast);
+        this.ast.dirtyNodes.forEach(r => { this.renderer.render(r); });
       });
       // reset the cursor
       setTimeout(() => {
         let node = this.ast.getClosestNodeFromPath(this.focusPath.split(','));
         if(node && node.el) { node.el.click(); }
         else { this.cm.focus(); }
+        delete this.ast.dirtyNodes;
       }, 150);
     } catch (e){
       console.error(e);
