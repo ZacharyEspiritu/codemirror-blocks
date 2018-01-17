@@ -100,22 +100,22 @@ export class AST {
     // to our patches:
     let basePatchIds = jsonpatch.compare(this.rootNodes, newAST.rootNodes)
                                 .filter(p => ['id'].includes(p.path.split('/').pop()));
-    console.log("basePatchIds", basePatchIds);
 
+    // Loop over all of the changes:
     changes.forEach(({from, to, text, removed}) => {
-      console.log('--------------PROCESSING CHANGE------------', {from, to, text, removed});
-
-      let isInsertion = (comparePos(from, to) == 0);
-      let isDeletion  = (text.join("") === "");
-
       // Check if there's a node from the old AST that contains the change:
       let containingNode = this.getNodeContaining(from);
-      if (containingNode && !(isInsertion || isDeletion)) {
+      
+      // If the change is an insertion into a new node (eg: adding a new 
+      // argument) or a deletion of an existing node, we should re-render the
+      // parent:
+      let isInsertion = (comparePos(from, to) == 0);
+      let isDeletion  = (text.join("") === "");
+      if (containingNode && (isInsertion || isDeletion)) {
         containingNode = this.getNodeParent(containingNode);
       }
       
       if (containingNode) {
-
         let newParentNode = newAST.getNodeByPath(containingNode.path);
 
         let patches = jsonpatch.compare(containingNode, newParentNode);
@@ -128,11 +128,8 @@ export class AST {
           patches[i].path = baseJSONPath + patches[i].path;
         }
 
-        console.log("based patches", patches);
-
         jsonpatch.applyPatch(this.rootNodes, patches, false);
-        console.log(this.rootNodes);
-        // castToASTNode(this.getNodeByPath(containingNode.path));
+        castToASTNode(this.getNodeByPath(containingNode.path));
         dirtyNodes.add(this.getNodeByPath(containingNode.path));  
       } else {
         // Otherwise, just insert into root:
@@ -149,7 +146,6 @@ export class AST {
 
         // compute splice point, do the splice, and patch from/to posns, aria attributes, etc
         for(var i = 0; i<this.rootNodes.length; i++){ if(comparePos(fromPos, this.rootNodes[i].from)<=0) break;  }
-        //console.log('starting at index'+(i)+', remove '+removedRoots.length+' roots and insert', insertedRoots);
         this.rootNodes.splice(i, removedRoots.length, ...insertedRoots);
       }
     });
