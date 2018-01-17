@@ -331,7 +331,6 @@ export default class CodeMirrorBlocks {
     try {
       this.cm.operation(() => {
         this.ast = this.ast.patch(this.parser.parse, this.cm.getValue(), changes);
-        console.log(this.ast);
         this.ast.dirtyNodes.forEach(r => { this.renderer.render(r); });
       });
       // reset the cursor
