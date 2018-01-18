@@ -74,17 +74,6 @@ export class AST {
     });
   } 
 
-  // patch : AST AST -> AST
-  // Given two ASTs oldAST and newAST, returns a new one with updated nodes
-  // marked as dirty for re-rendering purposes.
-  // patch(oldAST, newAST, changes) {
-  //   console.log(changes);
-  //   var patches = jsonpatch.compare(oldAST.rootNodes, newAST.rootNodes);
-  //   patches = patches.filter(p => ['aria-level','aria-setsize','aria-posinset','line','ch'].includes(p.path.split('/').pop()));
-  //   console.log(patches);
-  //   return newAST;
-  // }
-
   // patch : AST ChangeObj -> AST
   // given a new AST, return a new one patched from the current one
   // taking care to preserve all rendered DOM elements, though!
@@ -101,7 +90,6 @@ export class AST {
     let basePatchIds = jsonpatch.compare(this.rootNodes, newAST.rootNodes)
                                 .filter(p => ['id'].includes(p.path.split('/').pop()));
 
-    console.log("changes", changes);
     // Loop over all of the changes:
     changes.forEach(({from, to, text, removed}) => {
       // Check if there's a node from the old AST that contains the change:
@@ -109,12 +97,10 @@ export class AST {
       
       // If the change is an insertion into a new node (eg: adding a new 
       // argument) or a deletion of an existing node, we should re-render the
-      // parent:
+      // parent instead:
       let isInsertion = (comparePos(from, to) == 0);
       let isDeletion  = (text.join("") === "");
 
-      console.log(isInsertion);
-      console.log(isDeletion);
       if (containingNode && (isInsertion || isDeletion)) {
         containingNode = this.getNodeParent(containingNode);
       }
@@ -123,10 +109,11 @@ export class AST {
         let nodePath      = containingNode.path;
         let newParentNode = newAST.getNodeByPath(nodePath);
 
+        // TODO: Do something better for this, just a clunky way of fixing rare 
+        // edge cases that essentially boil down to where the number of children 
+        // in a given node is different from newAST
         while (!newParentNode) {
-          console.log(nodePath);
           nodePath = nodePath.split(",").slice(0, -1).join(",");
-          console.log(nodePath);
           newParentNode = newAST.getNodeByPath(nodePath);
           containingNode = this.getNodeParent(containingNode);
         }
@@ -138,15 +125,19 @@ export class AST {
         let patches = jsonpatch.compare(containingNode, newParentNode);
         patches     = patches.filter(p => !['el','path'].includes(p.path.split('/').pop()));
 
+        // Using the ID of the newParentNode, find the JSON path to the node in
+        // the new AST and append it to the patches above so we know exactly
+        // where to put it into the tree:
         let baseIdPatch  = basePatchIds.find(p => p.value == newParentNode.id);
         let baseJSONPath = baseIdPatch.path.slice(0, -3);
-
         for (var i = 0; i < patches.length; i++) {
           patches[i].path = baseJSONPath + patches[i].path;
         }
 
         console.log("3", this.rootNodes);
 
+        // "Put the node into the tree" by patching it with the patches with the
+        // newly edited paths as above:
         jsonpatch.applyPatch(this.rootNodes, patches, false);
         castToASTNode(this.getNodeByPath(containingNode.path));
         dirtyNodes.add(this.getNodeByPath(containingNode.path));  
