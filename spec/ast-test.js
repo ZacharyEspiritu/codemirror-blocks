@@ -185,7 +185,6 @@ describe("The AST Class", function() {
   });
 });
 
-/*
 describe("AST Patching", function() {
   beforeEach(function() {
     this.parser = new WeschemeParser();
@@ -411,4 +410,3 @@ describe("AST Patching", function() {
     expect(this.ast.rootNodes[2].value).toBe('"hello"');
   });
 });
-*/

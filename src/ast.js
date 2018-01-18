@@ -101,6 +101,7 @@ export class AST {
     let basePatchIds = jsonpatch.compare(this.rootNodes, newAST.rootNodes)
                                 .filter(p => ['id'].includes(p.path.split('/').pop()));
 
+    console.log("changes", changes);
     // Loop over all of the changes:
     changes.forEach(({from, to, text, removed}) => {
       // Check if there's a node from the old AST that contains the change:
@@ -111,12 +112,28 @@ export class AST {
       // parent:
       let isInsertion = (comparePos(from, to) == 0);
       let isDeletion  = (text.join("") === "");
+
+      console.log(isInsertion);
+      console.log(isDeletion);
       if (containingNode && (isInsertion || isDeletion)) {
         containingNode = this.getNodeParent(containingNode);
       }
       
       if (containingNode) {
-        let newParentNode = newAST.getNodeByPath(containingNode.path);
+        let nodePath      = containingNode.path;
+        let newParentNode = newAST.getNodeByPath(nodePath);
+
+        while (!newParentNode) {
+          console.log(nodePath);
+          nodePath = nodePath.split(",").slice(0, -1).join(",");
+          console.log(nodePath);
+          newParentNode = newAST.getNodeByPath(nodePath);
+          containingNode = this.getNodeParent(containingNode);
+        }
+
+        console.log("2", this.rootNodes);
+        console.log("containingNode", containingNode);
+        console.log("newParentNode", newParentNode);
 
         let patches = jsonpatch.compare(containingNode, newParentNode);
         patches     = patches.filter(p => !['el','path'].includes(p.path.split('/').pop()));
@@ -127,6 +144,8 @@ export class AST {
         for (var i = 0; i < patches.length; i++) {
           patches[i].path = baseJSONPath + patches[i].path;
         }
+
+        console.log("3", this.rootNodes);
 
         jsonpatch.applyPatch(this.rootNodes, patches, false);
         castToASTNode(this.getNodeByPath(containingNode.path));
